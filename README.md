@@ -15,7 +15,10 @@ Run:
 curl -fsSL https://raw.githubusercontent.com/Matt-Cain/dotfiles-bootstrap/main/bootstrap.sh | bash
 ```
 
-The bootstrap clones the private repository into `~/dotfiles`, sets up the `dotfiles` command in `~/bin`, and ensures `~/bin` is configured in your Zsh `PATH`.
+The bootstrap:
+1. clones the private repository into `~/dotfiles`
+2. sets up the `dotfiles` command in `~/bin`
+3. ensures `~/bin` is configured in your Zsh `PATH`
 
 **It does not install or apply the dotfiles configuration.**
 
