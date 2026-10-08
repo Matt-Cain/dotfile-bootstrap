@@ -57,6 +57,22 @@ die() {
   exit 1
 }
 
+# Check the active PATH rather than inferring it from shell config files.
+path_contains_bin() {
+  local entry
+  local -a path_entries=()
+
+  IFS=: read -r -a path_entries <<<"${PATH:-}"
+
+  for entry in "${path_entries[@]}"; do
+    if [[ "${entry%/}" == "${BIN_DIR%/}" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 # Resolve a path through chains of absolute or relative symlinks.
 resolve_path() {
   local path="$1"
@@ -114,7 +130,7 @@ else
   log_success "Cloned repository to ${DOTFILES_DIR}"
 fi
 
-# The command should be present and executable in the repository.
+# The command must already exist and be executable in the repository.
 [[ -f "$DOTFILES_COMMAND" && -x "$DOTFILES_COMMAND" ]] ||
   die "Repository is missing an executable dotfiles command: ${DOTFILES_COMMAND}"
 
@@ -161,34 +177,39 @@ fi
 
 log_section "Zsh PATH"
 
-if [[ -L "$ZSHRC" ]]; then
-  log_info "Following Zsh config symlink: ${ZSHRC}"
-fi
-
-ZSHRC_FILE="$(resolve_path "$ZSHRC")" ||
-  die "Unable to resolve ${ZSHRC}"
-
-if [[ -d "$ZSHRC_FILE" ]]; then
-  die "Resolved Zsh config is a directory: ${ZSHRC_FILE}"
-fi
-
-if [[ -f "$ZSHRC_FILE" ]]; then
-  log_skip "Zsh config already exists"
+if path_contains_bin; then
+  log_skip "~/bin is already in the current PATH"
 else
-  touch "$ZSHRC_FILE"
-  log_success "Created Zsh config: ${ZSHRC_FILE}"
-fi
+  log_info "~/bin is missing from the current PATH; checking Zsh config"
 
-if grep -Eq '^[[:space:]]*export[[:space:]]+PATH=.*[$]HOME/bin' "$ZSHRC_FILE"; then
-  log_skip "~/bin is already configured in PATH"
-else
-  cat >>"$ZSHRC_FILE" <<'ZSHRC'
+  if [[ -L "$ZSHRC" ]]; then
+    log_info "Following Zsh config symlink: ${ZSHRC}"
+  fi
+
+  ZSHRC_FILE="$(resolve_path "$ZSHRC")" ||
+    die "Unable to resolve ${ZSHRC}"
+
+  [[ ! -d "$ZSHRC_FILE" ]] ||
+    die "Resolved Zsh config is a directory: ${ZSHRC_FILE}"
+
+  if [[ -f "$ZSHRC_FILE" ]]; then
+    log_skip "Zsh config already exists"
+  else
+    touch "$ZSHRC_FILE"
+    log_success "Created Zsh config: ${ZSHRC_FILE}"
+  fi
+
+  if grep -Eq '^[[:space:]]*export[[:space:]]+PATH=.*[$]HOME/bin' "$ZSHRC_FILE"; then
+    log_skip "~/bin is already configured in the Zsh config"
+  else
+    cat >>"$ZSHRC_FILE" <<'ZSHRC'
 
 # Added by dotfiles bootstrap.
 export PATH="$HOME/bin:$PATH"
 ZSHRC
 
-  log_success "Added ~/bin to PATH in ${ZSHRC_FILE}"
+    log_success "Added ~/bin to PATH in ${ZSHRC_FILE}"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
