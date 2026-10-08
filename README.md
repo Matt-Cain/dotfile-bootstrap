@@ -12,7 +12,7 @@ A small public bootstrap script for setting up my private [dotfiles](https://git
 Run:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Matt-Cain/dotfiles-bootstrap/main/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Matt-Cain/dotfile-bootstrap/main/bootstrap.sh | bash
 ```
 
 The bootstrap:
