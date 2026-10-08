@@ -7,8 +7,6 @@ A small public bootstrap script for setting up my private [dotfiles](https://git
 * Git
 * Access to the private dotfiles repository
 
-```
-
 ## Bootstrap
 
 Run:
