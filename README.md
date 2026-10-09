@@ -4,18 +4,19 @@ A small public bootstrap script for setting up my private [dotfiles](https://git
 
 ## Requirements
 
-* Git
-* Access to the private dotfiles repository
+- Git
+- Access to the private dotfiles repository
 
 ## Bootstrap
 
 Run:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Matt-Cain/dotfile-bootstrap/main/bootstrap.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Matt-Cain/dotfile-bootstrap/main/bootstrap.sh)
 ```
 
 The bootstrap:
+
 1. clones the private repository into `~/dotfiles`
 2. sets up the `dotfiles` command in `~/bin`
 3. ensures `~/bin` is configured in your Zsh `PATH`
