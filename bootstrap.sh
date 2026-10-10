@@ -166,6 +166,33 @@ ensure_homebrew_shellenv() {
   log_success "Added Homebrew shellenv to ${config_file}"
 }
 
+ensure_dotbot() {
+  local brew_prefix
+  local dotbot_bin
+
+  log_section "Dotbot"
+
+  if "$BREW_BIN" list --formula dotbot >/dev/null 2>&1; then
+    log_skip "Dotbot is already installed with Homebrew"
+  else
+    log_info "Installing Dotbot with Homebrew..."
+    "$BREW_BIN" install dotbot ||
+      die "Could not install Dotbot with Homebrew."
+  fi
+
+  brew_prefix="$("$BREW_BIN" --prefix)" ||
+    die "Could not determine the Homebrew prefix."
+  dotbot_bin="${brew_prefix}/bin/dotbot"
+
+  [[ -x "$dotbot_bin" ]] ||
+    die "Dotbot was installed, but its executable is missing: ${dotbot_bin}"
+
+  "$dotbot_bin" --help >/dev/null 2>&1 ||
+    die "Dotbot is installed, but its executable failed to run: ${dotbot_bin}"
+
+  log_success "Dotbot is installed and ready for dry runs"
+}
+
 # Preserve machine-specific Git identity independently of the managed .gitconfig.
 setup_git_identity() {
   local existing_local_name
@@ -507,6 +534,7 @@ eval "$BREW_SHELLENV"
 log_success "Homebrew is ready"
 
 ensure_homebrew_shellenv
+ensure_dotbot
 
 # ---------------------------------------------------------------------------
 # GitHub CLI
@@ -651,12 +679,12 @@ printf '%s│       Bootstrap completed ✓          │%s\n' "$GREEN" "$RESET"
 printf '%s╰──────────────────────────────────────╯%s\n' "$GREEN" "$RESET"
 
 printf '\n'
-printf '%sPrerequisites, GitHub authentication, SSH access, and local Git identity are ready.%s\n' "$BOLD" "$RESET"
+printf '%sHomebrew, Dotbot, GitHub authentication, SSH access, and local Git identity are ready.%s\n' "$BOLD" "$RESET"
 printf '%sDotbot has not been run; the dotfiles configuration has not been applied.%s\n' "$BOLD" "$RESET"
 printf '\n'
 printf 'Next steps:\n'
-printf '  %s1.%s Reload your shell configuration:\n' "$CYAN" "$RESET"
-printf '     source ~/.zshrc\n'
+printf '  %s1.%s Start a fresh login shell to load both Zsh config files:\n' "$CYAN" "$RESET"
+printf '     exec zsh -l\n'
 printf '\n'
 printf '  %s2.%s Preview the planned changes:\n' "$CYAN" "$RESET"
 printf '     dotfiles dry-run\n'
