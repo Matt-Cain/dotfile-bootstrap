@@ -193,6 +193,36 @@ ensure_dotbot() {
   log_success "Dotbot is installed and ready for dry runs"
 }
 
+# Accept a basic email-address shape rather than arbitrary API output.
+# This deliberately rejects JSON error payloads and whitespace.
+is_valid_email() {
+  local email="$1"
+
+  [[ "$email" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]
+}
+
+# Return only a valid primary verified email.
+# A failed request, empty result, or malformed response is treated as failure.
+get_primary_verified_github_email() {
+  local email
+
+  if ! email="$(
+    gh api user/emails \
+      --jq 'map(select(.primary == true and .verified == true)) | .[0].email // empty' \
+      2>/dev/null
+  )"; then
+    return 1
+  fi
+
+  is_valid_email "$email" || return 1
+
+  printf '%s\n' "$email"
+}
+
+get_github_username() {
+  gh api user --jq '.login' 2>/dev/null
+}
+
 # Preserve machine-specific Git identity independently of the managed .gitconfig.
 setup_git_identity() {
   local existing_local_name
@@ -217,6 +247,18 @@ setup_git_identity() {
   existing_local_email="$(git config --file "$GITCONFIG_LOCAL" --get user.email 2>/dev/null || true)"
   existing_global_name="$(git config --global --get user.name 2>/dev/null || true)"
   existing_global_email="$(git config --global --get user.email 2>/dev/null || true)"
+
+  # Treat invalid existing values as missing so bootstrap can repair them.
+  # This also prevents the early-return check below from preserving bad data.
+  if [[ -n "$existing_local_email" ]] && ! is_valid_email "$existing_local_email"; then
+    log_error "Invalid Git email found in ~/.gitconfig.local; it will be replaced."
+    existing_local_email=''
+  fi
+
+  if [[ -n "$existing_global_email" ]] && ! is_valid_email "$existing_global_email"; then
+    log_error "Ignoring invalid global Git email."
+    existing_global_email=''
+  fi
 
   git_name="${existing_local_name:-$existing_global_name}"
   git_email="${existing_local_email:-$existing_global_email}"
@@ -249,38 +291,27 @@ setup_git_identity() {
   fi
 
   if [[ -z "$git_email" ]]; then
-    if [[ -n "$existing_local_email" ]]; then
-      log_skip "Preserving existing local Git email"
-    elif [[ -n "$existing_global_email" ]]; then
-      log_info "Reusing existing global Git email"
+    log_info "Looking up the primary verified GitHub email..."
+
+    if github_primary_email="$(get_primary_verified_github_email)"; then
+      git_email="$github_primary_email"
+      log_success "Using primary verified GitHub email for Git identity"
     else
-      log_info "Looking up the primary verified GitHub email..."
-      github_primary_email="$(
-        gh api user/emails \
-          --jq 'map(select(.primary == true and .verified == true)) | .[0].email // empty' \
-          2>/dev/null || true
-      )"
+      # The email endpoint may require the user:email scope or may be
+      # unavailable to the current credentials. Never trust its raw output.
+      require_interactive_terminal
+      log_info "GitHub did not return a valid primary verified email."
+      log_info "Requesting permission to read your email addresses."
 
-      # The email endpoint needs the user:email OAuth scope. Request it only
-      # when the current credentials cannot provide the primary verified email.
-      if [[ -z "$github_primary_email" ]]; then
-        require_interactive_terminal
-        log_info "GitHub needs permission to read your email addresses."
-
-        if gh auth refresh --hostname github.com --scopes user:email; then
-          github_primary_email="$(
-            gh api user/emails \
-              --jq 'map(select(.primary == true and .verified == true)) | .[0].email // empty' \
-              2>/dev/null || true
-          )"
+      if gh auth refresh --hostname github.com --scopes user:email; then
+        if github_primary_email="$(get_primary_verified_github_email)"; then
+          git_email="$github_primary_email"
+          log_success "Using primary verified GitHub email for Git identity"
         else
-          log_info "Could not authorize GitHub email access; you'll be asked for an email if needed."
+          log_info "GitHub still did not return a valid primary verified email; you'll be asked for an email if needed."
         fi
-      fi
-
-      if [[ -n "$github_primary_email" ]]; then
-        git_email="$github_primary_email"
-        log_success "Using primary verified GitHub email for Git identity"
+      else
+        log_info "Could not authorize GitHub email access; you'll be asked for an email if needed."
       fi
     fi
   fi
@@ -290,14 +321,24 @@ setup_git_identity() {
   fi
 
   if [[ -z "$git_name" ]]; then
-    read -r -p '  Git author name: ' git_name || die "Could not read Git author name."
-    [[ -n "$git_name" ]] || die "A Git author name is required."
+    read -r -p '  Git author name: ' git_name ||
+      die "Could not read Git author name."
+
+    [[ -n "$git_name" ]] ||
+      die "A Git author name is required."
   fi
 
   if [[ -z "$git_email" ]]; then
-    read -r -p '  Git author email: ' git_email || die "Could not read Git author email."
-    [[ -n "$git_email" ]] || die "A Git author email is required."
+    read -r -p '  Git author email: ' git_email ||
+      die "Could not read Git author email."
+
+    is_valid_email "$git_email" ||
+      die "A valid Git author email is required."
   fi
+
+  # Validate again before writing, regardless of how the value was obtained.
+  is_valid_email "$git_email" ||
+    die "Refusing to save an invalid Git author email."
 
   if [[ ! -e "$GITCONFIG_LOCAL" ]]; then
     (umask 077 && : >"$GITCONFIG_LOCAL") ||
@@ -307,22 +348,19 @@ setup_git_identity() {
   fi
 
   if [[ "$existing_local_name" != "$git_name" ]]; then
-    git config --file "$GITCONFIG_LOCAL" user.name "$git_name" ||
+    git config --file "$GITCONFIG_LOCAL" --replace-all user.name "$git_name" ||
       die "Could not save the Git author name."
 
     log_success "Saved Git author name"
   fi
 
   if [[ "$existing_local_email" != "$git_email" ]]; then
-    git config --file "$GITCONFIG_LOCAL" user.email "$git_email" ||
+    # --replace-all overwrites the malformed value already in the local file.
+    git config --file "$GITCONFIG_LOCAL" --replace-all user.email "$git_email" ||
       die "Could not save the Git author email."
 
     log_success "Saved Git author email"
   fi
-}
-
-get_github_username() {
-  gh api user --jq '.login' 2>/dev/null
 }
 
 has_repository_access() {
