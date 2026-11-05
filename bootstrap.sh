@@ -8,13 +8,28 @@ REPOSITORY_URL="git@github.com:${REPOSITORY}.git"
 
 BIN_DIR="${HOME}/bin"
 DOTFILES_BIN="${BIN_DIR}/dotfiles"
-DOTFILES_COMMAND="${DOTFILES_DIR}/scripts/bin/dotfiles"
+DOTFILES_COMMAND="${DOTFILES_DIR}/bin/dotfiles"
 GITCONFIG_LOCAL="${HOME}/.gitconfig.local"
 ZPROFILE="${HOME}/.zprofile"
 ZSHRC="${HOME}/.zshrc"
 
 HOMEBREW_INSTALL_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
 BOOTSTRAP_URL="https://raw.githubusercontent.com/Matt-Cain/dotfile-bootstrap/main/bootstrap.sh"
+
+# --yes (or DOTFILES_BOOTSTRAP_YES=1) is for machines without a terminal, such as the test VMs:
+# nothing prompts, and the Git identity step is skipped.
+ASSUME_YES=false
+[[ "${DOTFILES_BOOTSTRAP_YES:-}" == 1 ]] && ASSUME_YES=true
+
+for arg in "$@"; do
+  case "$arg" in
+  --yes) ASSUME_YES=true ;;
+  *)
+    printf 'Unknown argument: %s\nUsage: bootstrap.sh [--yes]\n' "$arg" >&2
+    exit 2
+    ;;
+  esac
+done
 
 # Colors are enabled only when stdout is an interactive terminal.
 if [[ -t 1 && "${TERM:-}" != "dumb" ]]; then
@@ -61,6 +76,7 @@ die() {
 }
 
 require_interactive_terminal() {
+  [[ "$ASSUME_YES" == true ]] && return 0
   [[ -t 0 && -t 1 ]] ||
     die "An interactive terminal is required. Run: bash <(curl -fsSL ${BOOTSTRAP_URL})"
 }
@@ -551,7 +567,13 @@ else
 
   log_info "Running Homebrew installer..."
 
-  if ! /bin/bash "$installer"; then
+  if [[ "$ASSUME_YES" == true ]]; then
+    NONINTERACTIVE=1 /bin/bash "$installer" || installer_failed=true
+  else
+    /bin/bash "$installer" || installer_failed=true
+  fi
+
+  if [[ "${installer_failed:-false}" == true ]]; then
     rm -f "$installer"
     die "Homebrew installation failed. Resolve the reported issue and rerun bootstrap."
   fi
@@ -595,8 +617,12 @@ fi
 # GitHub authentication and SSH
 # ---------------------------------------------------------------------------
 
-ensure_github_access
-verify_ssh_repository_access
+if [[ -d "${DOTFILES_DIR}/.git" || -f "${DOTFILES_DIR}/.git" ]]; then
+  log_skip "Repository already exists; GitHub access is not needed"
+else
+  ensure_github_access
+  verify_ssh_repository_access
+fi
 
 # ---------------------------------------------------------------------------
 # Repository
@@ -627,7 +653,11 @@ fi
 
 log_section "Git identity"
 
-setup_git_identity
+if [[ "$ASSUME_YES" == true && ! ( -t 0 && -t 1 ) ]]; then
+  log_skip "No terminal to ask on; rerun bootstrap interactively to set your Git identity"
+else
+  setup_git_identity
+fi
 
 # ---------------------------------------------------------------------------
 # User bin directory
@@ -717,16 +747,17 @@ printf '%s│       Bootstrap completed ✓          │%s\n' "$GREEN" "$RESET"
 printf '%s╰──────────────────────────────────────╯%s\n' "$GREEN" "$RESET"
 
 printf '\n'
-printf '%sHomebrew, Dotbot, GitHub authentication, SSH access, and local Git identity are ready.%s\n' "$BOLD" "$RESET"
-printf '%sDotbot has not been run; the dotfiles configuration has not been applied.%s\n' "$BOLD" "$RESET"
+printf '%sHomebrew, Dotbot, the repository and the dotfiles command are ready.%s\n' "$BOLD" "$RESET"
+printf '%sNothing has been installed or applied from the repository yet.%s\n' "$BOLD" "$RESET"
 printf '\n'
 printf 'Next steps:\n'
-printf '  %s1.%s Start a fresh login shell to load both Zsh config files:\n' "$CYAN" "$RESET"
+printf '  %s1.%s Start a fresh login shell so ~/bin and Homebrew are on your PATH:\n' "$CYAN" "$RESET"
 printf '     exec zsh -l\n'
 printf '\n'
-printf '  %s2.%s Preview the planned changes:\n' "$CYAN" "$RESET"
-printf '     dotfiles dry-run\n'
+printf '  %s2.%s Install packages, tools and one-time setup (takes a few minutes):\n' "$CYAN" "$RESET"
+printf '     dotfiles setup\n'
 printf '\n'
-printf '  %s3.%s Apply when you are ready:\n' "$CYAN" "$RESET"
-printf '     dotfiles install\n'
+printf '  %s3.%s Link your configuration and build themes and the shell cache:\n' "$CYAN" "$RESET"
+printf '     dotfiles apply\n'
 printf '\n'
+printf 'Later, "dotfiles update" pulls, sets up and applies; "dotfiles help" lists every command.\n'
